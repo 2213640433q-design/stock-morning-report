@@ -50,7 +50,7 @@ def build_card(quotes):
         price, change, pct = q["price"], q["change"], q["change_pct"]
         trend, impact, val = analyze(pct)
         emoji = "📈" if change >= 0 else "📉"
-        elements.append({"tag": "div", "text": {"tag": "lark_md", "content": f"**{emoji} {name} ({code})**  ¥{price}  {change:+.2f} ({pct:+.2f}%)"}})
+        elements.append({"tag": "div", "text": {"tag": "lark_md", "content": f"**{emoji} {name} ({code})** ¥{price} {change:+.2f} ({pct:+.2f}%)"}})
         elements.append({"tag": "div", "text": {"tag": "lark_md", "content": f"💡 **{trend}**｜{impact}｜{val}"}})
         elements.append({"tag": "hr"})
     elements.append({"tag": "div", "text": {"tag": "lark_md", "content": "*数据来源: 腾讯财经 | 仅供参考*"}})
