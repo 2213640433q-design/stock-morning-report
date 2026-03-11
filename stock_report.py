@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-股票晨报 - 专业完整版
-获取股票行情并推送到飞书
+股票晨报 - 专业基本面分析版
+包含技术面 + 基本面分析
 """
 import json
 import os
@@ -14,6 +14,26 @@ WATCHLIST = [
     {"code": "600111", "name": "北方稀土", "industry": "稀土永磁"},
     {"code": "600900", "name": "长江电力", "industry": "水电"}
 ]
+
+# 基本面分析数据（静态配置，可定期更新）
+FUNDAMENTAL_DATA = {
+    "600111": {
+        "name": "北方稀土",
+        "business": "稀土氧化物、稀土金属、稀土磁性材料",
+        "advantage": "中国稀土集团控股，资源垄断优势",
+        "risk": "稀土价格波动大，受政策影响",
+        "pe_history": "历史PE区间：30-150倍",
+        "dividend": "分红较少，资本开支大"
+    },
+    "600900": {
+        "name": "长江电力",
+        "business": "水电发电、配售电",
+        "advantage": "长江流域水电独家运营，成本优势明显",
+        "risk": "来水波动、电价调整",
+        "pe_history": "历史PE区间：15-25倍",
+        "dividend": "高分红，现金流稳定"
+    }
+}
 
 def get_stock_quote(code):
     """获取股票行情"""
@@ -37,7 +57,6 @@ def get_stock_quote(code):
                     prev = float(fields[4])
                     change = round(price - prev, 2)
                     volume = int(fields[6]) if fields[6].isdigit() else 0
-                    # 计算市值（亿）
                     market_cap = round(float(fields[44]) / 100000000, 0) if fields[44] else 0
                     
                     return {
@@ -56,81 +75,88 @@ def get_stock_quote(code):
                         "pe": fields[52] if fields[52] and fields[52] != "N/A" else "N/A",
                         "pb": fields[45] if fields[45] else "N/A",
                         "market_cap": market_cap,
-                        "high_52w": float(fields[43]) if fields[43] else 0,
-                        "low_52w": float(fields[44]) if fields[44] else 0,
                     }
     except Exception as e:
         return None
     return None
 
-def analyze_stock(quote):
-    """分析股票"""
+def analyze_technical(quote):
+    """技术面分析"""
     change_pct = quote.get("change_pct", 0)
     amplitude = quote.get("amplitude", 0)
-    pe = quote.get("pe", "N/A")
     
     # 趋势判断
     if change_pct >= 9.5:
         trend = "🔥 涨停"
-        suggestion = "注意获利回吐"
+        signal = "强势"
     elif change_pct >= 5:
         trend = "📈 大涨"
-        suggestion = "关注持续性"
+        signal = "强势"
     elif change_pct >= 1:
         trend = "📈 上涨"
-        suggestion = "持股待涨"
+        signal = "中性偏多"
     elif change_pct > -1:
-        trend = "📉 震荡"
-        suggestion = "观望为主"
+        trend = "📊 震荡"
+        signal = "中性"
     elif change_pct > -5:
         trend = "📉 下跌"
-        suggestion = "注意风险"
+        signal = "中性偏空"
     else:
         trend = "🔴 大跌"
-        suggestion = "谨慎观望"
+        signal = "弱势"
     
-    # 估值参考
+    return trend, signal
+
+def analyze_valuation(quote):
+    """估值分析"""
     try:
-        pe_val = float(pe) if pe != "N/A" else None
-        if pe_val:
-            if pe_val < 0:
-                pe_status = "亏损"
-            elif pe_val < 15:
-                pe_status = "低估"
-            elif pe_val < 30:
-                pe_status = "合理"
-            else:
-                pe_status = "高估"
+        pe = float(quote.get("pe", 0)) if quote.get("pe") != "N/A" else 0
+        if pe <= 0:
+            return "亏损", "无法评估"
+        elif pe < 15:
+            return f"{pe:.1f}倍", "低估"
+        elif pe < 30:
+            return f"{pe:.1f}倍", "合理"
         else:
-            pe_status = "N/A"
+            return f"{pe:.1f}倍", "偏高"
     except:
-        pe_status = "N/A"
-    
-    return trend, suggestion, pe_status
+        return "N/A", "无法评估"
 
 def build_stock_block(q):
     """构建单个股票区块"""
-    name = q["name"]
     code = q["code"]
+    name = q["name"]
     price = q["price"]
     change = q["change"]
     pct = q["change_pct"]
-    trend, suggestion, pe_status = analyze_stock(q)
+    trend, signal = analyze_technical(q)
+    pe_val, pe_status = analyze_valuation(q)
+    
+    # 获取基本面数据
+    fundamental = FUNDAMENTAL_DATA.get(code, {})
     
     emoji = "🟢" if change >= 0 else "🔴"
     
     content = f"### {emoji} {name} ({code})\n\n"
+    
+    # 行情数据
     content += f"**现价**: ¥{price} | **涨跌**: {change:+.2f} ({pct:+.2f}%)\n\n"
-    content += f"📊 **技术面**: {trend} · {suggestion}\n\n"
-    content += f"---|---|---\n"
-    content += f"今开|最高|最低\n"
-    content += f"¥{q['open']}|¥{q['high']}|¥{q['low']}\n\n"
-    content += f"---|---|---\n"
-    content += f"成交量|成交额|换手\n"
-    content += f"{q['volume_wan']}万手|{q['turnover']}%|{q['amplitude']}%\n\n"
-    content += f"---|---|---\n"
-    content += f"市盈率|市净率|总市值\n"
-    content += f"{q['pe']}|{q['pb']}|{q['market_cap']}亿"
+    content += f"📊 **技术面**: {trend} · 信号: {signal}\n\n"
+    content += f"💰 **估值**: PE {pe_val} ({pe_status})\n\n"
+    content += f"---\n\n"
+    
+    # 详细数据
+    content += f"**开盘**: ¥{q['open']} | **最高**: ¥{q['high']} | **最低**: ¥{q['low']}\n\n"
+    content += f"**成交量**: {q['volume_wan']}万手 | **换手率**: {q['turnover']}% | **振幅**: {q['amplitude']}%\n\n"
+    content += f"**市值**: {q['market_cap']}亿\n\n"
+    content += f"---\n\n"
+    
+    # 基本面分析
+    content += f"**🏢 主营业务**: {fundamental.get('business', 'N/A')}\n\n"
+    content += f"**⭐ 核心优势**: {fundamental.get('advantage', 'N/A')}\n\n"
+    content += f"**⚠️ 主要风险**: {fundamental.get('risk', 'N/A')}\n\n"
+    content += f"**📈 历史PE**: {fundamental.get('pe_history', 'N/A')}\n\n"
+    content += f"**💵 分红**: {fundamental.get('dividend', 'N/A')}"
     
     return content
 
@@ -141,7 +167,7 @@ def build_card(quotes):
         if q:
             stock_blocks.append(build_stock_block(q))
     
-    content = "### 📈 今日行情\n\n"
+    content = "### 📈 股票行情 + 基本面分析\n\n"
     content += "\n---\n\n".join(stock_blocks)
     content += f"\n\n---\n\n*更新时间: {datetime.now().strftime('%H:%M')} | 数据: 腾讯财经*"
     
@@ -149,7 +175,7 @@ def build_card(quotes):
         "config": {"wide_screen_mode": True},
         "header": {
             "template": "blue",
-            "title": {"tag": "plain_text", "content": f"📈 股票行情 {datetime.now().strftime('%m-%d')}"}
+            "title": {"tag": "plain_text", "content": f"📈 股票晨报 {datetime.now().strftime('%m-%d')}"}
         },
         "elements": [
             {
