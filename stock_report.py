@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 股票晨报 - 专业基本面分析版
-包含技术面 + 基本面分析
+包含技术面 + 基本面分析 + 核心跟踪指标
 """
 import json
 import os
@@ -15,23 +15,30 @@ WATCHLIST = [
     {"code": "600900", "name": "长江电力", "industry": "水电"}
 ]
 
-# 基本面分析数据（静态配置，可定期更新）
+# 基本面分析数据
 FUNDAMENTAL_DATA = {
     "600111": {
         "name": "北方稀土",
-        "business": "稀土氧化物、稀土金属、稀土磁性材料",
-        "advantage": "中国稀土集团控股，资源垄断优势",
+        "business": "稀土氧化物、稀土金属、钕铁硼磁材",
+        "advantage": "中国稀土集团控股，白云鄂博矿资源垄断",
         "risk": "稀土价格波动大，受政策影响",
         "pe_history": "历史PE区间：30-150倍",
-        "dividend": "分红较少，资本开支大"
+        "dividend": "分红较少，资本开支大",
+        # 核心跟踪指标
+        "focus_1": "氧化镨钕价格趋势（权重50%）",
+        "focus_2": "稀土精矿定价机制（权重30%）",
+        "focus_3": "高端磁材产能落地（权重20%）"
     },
     "600900": {
         "name": "长江电力",
-        "business": "水电发电、配售电",
+        "business": "水电发电，配售电",
         "advantage": "长江流域水电独家运营，成本优势明显",
         "risk": "来水波动、电价调整",
         "pe_history": "历史PE区间：15-25倍",
-        "dividend": "高分红，现金流稳定"
+        "dividend": "高分红，现金流稳定",
+        "focus_1": "来水量与发电量",
+        "focus_2": "电价调整",
+        "focus_3": "新增水电项目进展"
     }
 }
 
@@ -83,29 +90,19 @@ def get_stock_quote(code):
 def analyze_technical(quote):
     """技术面分析"""
     change_pct = quote.get("change_pct", 0)
-    amplitude = quote.get("amplitude", 0)
     
-    # 趋势判断
     if change_pct >= 9.5:
-        trend = "🔥 涨停"
-        signal = "强势"
+        return "🔥 涨停", "强势"
     elif change_pct >= 5:
-        trend = "📈 大涨"
-        signal = "强势"
+        return "📈 大涨", "强势"
     elif change_pct >= 1:
-        trend = "📈 上涨"
-        signal = "中性偏多"
+        return "📈 上涨", "中性偏多"
     elif change_pct > -1:
-        trend = "📊 震荡"
-        signal = "中性"
+        return "📊 震荡", "中性"
     elif change_pct > -5:
-        trend = "📉 下跌"
-        signal = "中性偏空"
+        return "📉 下跌", "中性偏空"
     else:
-        trend = "🔴 大跌"
-        signal = "弱势"
-    
-    return trend, signal
+        return "🔴 大跌", "弱势"
 
 def analyze_valuation(quote):
     """估值分析"""
@@ -132,7 +129,6 @@ def build_stock_block(q):
     trend, signal = analyze_technical(q)
     pe_val, pe_status = analyze_valuation(q)
     
-    # 获取基本面数据
     fundamental = FUNDAMENTAL_DATA.get(code, {})
     
     emoji = "🟢" if change >= 0 else "🔴"
@@ -151,12 +147,19 @@ def build_stock_block(q):
     content += f"**市值**: {q['market_cap']}亿\n\n"
     content += f"---\n\n"
     
-    # 基本面分析
+    # 基本面
     content += f"**🏢 主营业务**: {fundamental.get('business', 'N/A')}\n\n"
     content += f"**⭐ 核心优势**: {fundamental.get('advantage', 'N/A')}\n\n"
     content += f"**⚠️ 主要风险**: {fundamental.get('risk', 'N/A')}\n\n"
     content += f"**📈 历史PE**: {fundamental.get('pe_history', 'N/A')}\n\n"
-    content += f"**💵 分红**: {fundamental.get('dividend', 'N/A')}"
+    content += f"**💵 分红**: {fundamental.get('dividend', 'N/A')}\n\n"
+    content += f"---\n\n"
+    
+    # 核心跟踪指标
+    content += f"**🎯 核心跟踪指标**\n\n"
+    content += f"1️⃣ {fundamental.get('focus_1', 'N/A')}\n\n"
+    content += f"2️⃣ {fundamental.get('focus_2', 'N/A')}\n\n"
+    content += f"3️⃣ {fundamental.get('focus_3', 'N/A')}"
     
     return content
 
