@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-股票晨报 - 完整版
+股票晨报 - 专业完整版
 获取股票行情并推送到飞书
 """
 import json
@@ -32,10 +32,14 @@ def get_stock_quote(code):
                 start = data.find(prefix) + len(prefix)
                 end = data.find('"', start)
                 fields = data[start:end].split('~')
-                if len(fields) >= 45:
+                if len(fields) >= 55:
                     price = float(fields[3])
                     prev = float(fields[4])
                     change = round(price - prev, 2)
+                    volume = int(fields[6]) if fields[6].isdigit() else 0
+                    # 计算市值（亿）
+                    market_cap = round(float(fields[44]) / 100000000, 0) if fields[44] else 0
+                    
                     return {
                         "code": code,
                         "name": fields[1],
@@ -45,8 +49,15 @@ def get_stock_quote(code):
                         "open": float(fields[5]),
                         "high": float(fields[33]),
                         "low": float(fields[34]),
-                        "volume": int(fields[6]) if fields[6].isdigit() else 0,
-                        "turnover": fields[37] if len(fields) > 37 else "N/A",
+                        "volume": volume,
+                        "volume_wan": round(volume / 10000, 2),
+                        "turnover": fields[37] if fields[37] else "N/A",
+                        "amplitude": round((float(fields[33]) - float(fields[34])) / prev * 100, 2),
+                        "pe": fields[52] if fields[52] and fields[52] != "N/A" else "N/A",
+                        "pb": fields[45] if fields[45] else "N/A",
+                        "market_cap": market_cap,
+                        "high_52w": float(fields[43]) if fields[43] else 0,
+                        "low_52w": float(fields[44]) if fields[44] else 0,
                     }
     except Exception as e:
         return None
@@ -55,52 +66,84 @@ def get_stock_quote(code):
 def analyze_stock(quote):
     """分析股票"""
     change_pct = quote.get("change_pct", 0)
+    amplitude = quote.get("amplitude", 0)
+    pe = quote.get("pe", "N/A")
     
-    if change_pct >= 5:
-        trend = "强势上涨"
-        suggestion = "注意回调风险"
-    elif change_pct > 0:
-        trend = "小幅上涨"
+    # 趋势判断
+    if change_pct >= 9.5:
+        trend = "🔥 涨停"
+        suggestion = "注意获利回吐"
+    elif change_pct >= 5:
+        trend = "📈 大涨"
+        suggestion = "关注持续性"
+    elif change_pct >= 1:
+        trend = "📈 上涨"
         suggestion = "持股待涨"
+    elif change_pct > -1:
+        trend = "📉 震荡"
+        suggestion = "观望为主"
     elif change_pct > -5:
-        trend = "小幅回调"
-        suggestion = "逢低关注"
-    else:
-        trend = "明显下跌"
+        trend = "📉 下跌"
         suggestion = "注意风险"
+    else:
+        trend = "🔴 大跌"
+        suggestion = "谨慎观望"
     
-    return trend, suggestion
+    # 估值参考
+    try:
+        pe_val = float(pe) if pe != "N/A" else None
+        if pe_val:
+            if pe_val < 0:
+                pe_status = "亏损"
+            elif pe_val < 15:
+                pe_status = "低估"
+            elif pe_val < 30:
+                pe_status = "合理"
+            else:
+                pe_status = "高估"
+        else:
+            pe_status = "N/A"
+    except:
+        pe_status = "N/A"
+    
+    return trend, suggestion, pe_status
+
+def build_stock_block(q):
+    """构建单个股票区块"""
+    name = q["name"]
+    code = q["code"]
+    price = q["price"]
+    change = q["change"]
+    pct = q["change_pct"]
+    trend, suggestion, pe_status = analyze_stock(q)
+    
+    emoji = "🟢" if change >= 0 else "🔴"
+    
+    content = f"### {emoji} {name} ({code})\n\n"
+    content += f"**现价**: ¥{price} | **涨跌**: {change:+.2f} ({pct:+.2f}%)\n\n"
+    content += f"📊 **技术面**: {trend} · {suggestion}\n\n"
+    content += f"---|---|---\n"
+    content += f"今开|最高|最低\n"
+    content += f"¥{q['open']}|¥{q['high']}|¥{q['low']}\n\n"
+    content += f"---|---|---\n"
+    content += f"成交量|成交额|换手\n"
+    content += f"{q['volume_wan']}万手|{q['turnover']}%|{q['amplitude']}%\n\n"
+    content += f"---|---|---\n"
+    content += f"市盈率|市净率|总市值\n"
+    content += f"{q['pe']}|{q['pb']}|{q['market_cap']}亿"
+    
+    return content
 
 def build_card(quotes):
     """构建飞书卡片"""
-    elements = []
-    
+    stock_blocks = []
     for q in quotes:
-        if not q:
-            continue
-        name = q["name"]
-        code = q["code"]
-        price = q["price"]
-        change = q["change"]
-        pct = q["change_pct"]
-        trend, suggestion = analyze_stock(q)
-        
-        emoji = "🟢" if change >= 0 else "🔴"
-        
-        content = f"**{emoji} {name} ({code})**\n"
-        content += f"¥{price} {change:+.2f} ({pct:+.2f}%)\n"
-        content += f"📊 {trend} · {suggestion}"
-        
-        elements.append({
-            "tag": "div",
-            "text": {"tag": "lark_md", "content": content}
-        })
-        elements.append({"tag": "hr"})
+        if q:
+            stock_blocks.append(build_stock_block(q))
     
-    elements.append({
-        "tag": "div",
-        "text": {"tag": "lark_md", "content": f"*更新时间: {datetime.now().strftime('%H:%M')} | 数据: 腾讯财经*"}
-    })
+    content = "### 📈 今日行情\n\n"
+    content += "\n---\n\n".join(stock_blocks)
+    content += f"\n\n---\n\n*更新时间: {datetime.now().strftime('%H:%M')} | 数据: 腾讯财经*"
     
     return {
         "config": {"wide_screen_mode": True},
@@ -108,7 +151,12 @@ def build_card(quotes):
             "template": "blue",
             "title": {"tag": "plain_text", "content": f"📈 股票行情 {datetime.now().strftime('%m-%d')}"}
         },
-        "elements": elements
+        "elements": [
+            {
+                "tag": "div",
+                "text": {"tag": "lark_md", "content": content}
+            }
+        ]
     }
 
 def send_to_feishu(card, webhook_url):
